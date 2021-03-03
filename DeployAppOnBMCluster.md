@@ -1,4 +1,4 @@
-# Deploy Application on BareMetal Cluster
+# Deploy an Application on BareMetal Cluster
 
 
 Create the application

@@ -1,4 +1,4 @@
-# Deploy Service on Kuberun
+# Deploy Service on GKE Cluster with KubeRun
 
 In this section we will setup a GKE cluster on GCP with Kuberun and deploy our application on this cluster. This section is based on documentation [here](https://cloud.google.com/solutions/deploying-internal-services-using-cloud-run-on-gke)
 

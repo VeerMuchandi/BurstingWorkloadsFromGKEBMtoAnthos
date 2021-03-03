@@ -1,6 +1,9 @@
 # Standup a BareMetal Simulated Cluster on GCE
 
-This section follows the process described in [go/anthos-bm-gce-vxlan](go/anthos-bm-gce-vxlan) guide to stand up an Anthos Bare Metal cluster after spinning up a few GCE VMs and connecting them via VPC.
+If you already have bare metal cluster, you can use the same. This section, simulates a baremetal cluster on GCP.
+
+
+This section follows the process described in "[Try Anthos on bare metal on Compute Engine VMs](https://cloud.google.com/anthos/clusters/docs/bare-metal/1.6/try/gce-vms)" guide to stand up an Anthos Bare Metal cluster after spinning up a few GCE VMs and connecting them via VPC.
 
 ## Standing up a BareMetal Cluster
 
