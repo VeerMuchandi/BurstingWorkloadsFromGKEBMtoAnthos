@@ -14,7 +14,7 @@ CLUSTER=kuberun-central1-a
 Set the configurations for the gcloud environment
 
 ```
-gcloud config set compute/zone $ZONE
+gcloud config set compute/zone $CLUSTER_ZONE
 gcloud config set run/cluster $CLUSTER
 gcloud config set run/cluster_location $CLUSTER_ZONE
 ```
@@ -32,7 +32,7 @@ gcloud beta container clusters create $CLUSTER  \
 Get credentials to create a kubernetes context to the newly created cluster
 
 ```
-gcloud container clusters get-credentials $CLUSTER_NAME \
+gcloud container clusters get-credentials $CLUSTER \
 --zone $CLUSTER_ZONE \
 --project $PROJECT_ID
 ```
@@ -81,7 +81,11 @@ gcloud run deploy ${SERVICENAME} \
 --set-env-vars=TARGET="From KubeRun on GCP"
 ```
 
-Note the resultant URL of the service
+Save the resultant URL of the service
+
+```
+KUBERUN_ENDPOINT=$(gcloud run services list --platform=gke --format="get(status.URL)")
+```
 
 ## Test the service
 
@@ -92,11 +96,25 @@ VM=cloudrun-test-vm
 gcloud compute instances create $VM
 ```
 
-SSH into this VM from Cloud Console, and  `curl` the service to test after substituting the URL and EXTERNAL_IP with the respective values.
+SSH into this VM by running and  `curl` the service to test after substituting the URL and EXTERNAL_IP with the respective values. 
 
 ```
-curl -s -w'\n' -H Host:$URL $EXTERNAL_IP
+gcloud compute ssh $VM --command="curl -s -w'\n' -H 'Host:${KUBERUN_ENDPOINT#*//}' $EXTERNAL_IP
 ```
+
+**Note** You may have to create a firewall rule to SSH from Cloud Shell
+
+```
+export CLOUDSHELL_IP=$(curl metadata/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip)
+
+gcloud compute firewall-rules create gcloud-cloudshell --allow=tcp:22,tcp:3389,icmp --source-ranges $CLOUDSHELL_IP
+```
+
+You see output as under
+```
+Hello From KubeRun on GCP!
+```
+
 
 Now we have the KubeRun service ready on the GCP cluster to use.
 

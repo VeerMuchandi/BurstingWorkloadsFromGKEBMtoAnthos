@@ -84,7 +84,7 @@ Test the service
 
 Get the EndpointURL for the service
 ```
-export ENDPOINT=$(kubectl get ksvc helloworld-python  -o=jsonpath='{.status.url}')
+export ONPREM_ENDPOINT=$(kubectl get ksvc helloworld-python  -o=jsonpath='{.status.url}')
 ```
 
 Since the ingress is via Nginx proxy running on the Admin Workstation, get its external IP
@@ -101,7 +101,7 @@ gcloud compute firewall-rules create gcloud-80 --allow=tcp:80 --source-ranges $C
 
 Access the URL as shown below
 ```
-curl -H "Host: ${ENDPOINT#*//}" $WS_EXTERNAL_IP
+curl -H "Host: ${ONPREM_ENDPOINT#*//}" $WS_EXTERNAL_IP
 ```
 and you should see the output `Hello From Anthos On Prem!`
 
