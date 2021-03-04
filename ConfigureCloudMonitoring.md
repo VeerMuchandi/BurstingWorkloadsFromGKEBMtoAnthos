@@ -35,6 +35,7 @@ gcloud pubsub topics create scale-up --project ${PROJECT_ID}
 gcloud pubsub topics create scale-down --project ${PROJECT_ID}
 ```
 
+
 ## Setup Alert Policies in Cloud Monitoring
 
 Now create the alert policies
@@ -110,6 +111,23 @@ gcloud alpha monitoring policies create --policy-from-file=scale-up-policy.yaml
 gcloud alpha monitoring policies create --policy-from-file=scale-down-policy.yaml
 ```
 
+
+Set up permissions for monitoring to publish messages to pubsub
+
+
+```
+export PROJECT_NUMBER=$(gcloud projects describe ${PROJECT_ID} \
+  --format="value(projectNumber)")
+  
+gcloud pubsub topics add-iam-policy-binding \
+projects/${PROJECT_ID}/topics/scale-up --role=roles/pubsub.publisher \
+--member=serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-monitoring-notification.iam.gserviceaccount.com
+
+gcloud pubsub topics add-iam-policy-binding \
+projects/${PROJECT_ID}/topics/scale-down --role=roles/pubsub.publisher \
+--member=serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-monitoring-notification.iam.gserviceaccount.com
+```
+
 ## Deploy Cloud Functions for Scale Up and Scale Down
 
 Next we need to create the function that cloud run will use to trigger the scale up and scale down events. 
@@ -183,6 +201,14 @@ pathMatchers:
 STDIN
 EOF
 ```
+
+Add execute permissions to this script file
+
+```
+chmod +x ./app/scale.sh
+```
+
+
 Create the dockerfile and build and push the image
 ```
 export IMAGENAME=gcr.io/${PROJECT_ID}/scaler:v1
@@ -236,7 +262,47 @@ gcloud beta run deploy cloud-burst-scale-down --image ${IMAGENAME} \
   --set-env-vars=_ON_PREM_WEIGHT=100
 ``` 
 
+
+## Add a Service Account to invoke CloudRun from EventArc
+
+Retrieve project number
+```
+PROJECT_NUMBER=$(gcloud projects describe ${PROJECT_ID} \>   --format="value(projectNumber)")
+```
+
+Enable Pub/Sub to create authentication tokens in your project:
+```
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+     --member=serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com \
+     --role=roles/iam.serviceAccountTokenCreator
+```
+
+Add a service account
+```
+gcloud iam service-accounts create cloud-run-pubsub-invoker \
+     --display-name "Cloud Run Pub/Sub Invoker"
+```
+
+Allow service account to invoke both scale up and scale down services
+
+```
+gcloud run services add-iam-policy-binding cloud-burst-scale-up \
+   --member=serviceAccount:cloud-run-pubsub-invoker@${PROJECT_ID}.iam.gserviceaccount.com \
+   --role=roles/run.invoker \
+   --platform=managed \
+   --region=${REGION}
+
+gcloud run services add-iam-policy-binding cloud-burst-scale-down \
+   --member=serviceAccount:cloud-run-pubsub-invoker@${PROJECT_ID}.iam.gserviceaccount.com \
+   --role=roles/run.invoker \
+   --platform=managed \
+   --region=${REGION}
+
+```
+
+
 ## Deploy Event Arc Triggers
+
 
 Enable Event Arc services in the project
 
@@ -244,15 +310,18 @@ Enable Event Arc services in the project
 gcloud services enable eventarc.googleapis.com
 ```
 
-Lastly, create the Eventarc triggers for each service
+Lastly, create the Eventarc triggers for each service. Note the service account that we configured in the last step to invoke scale up and scale down services.
+
 ```
 gcloud beta eventarc triggers create --location=${REGION} \
   --destination-run-service=cloud-burst-scale-up \
   --matching-criteria="type=google.cloud.pubsub.topic.v1.messagePublished" \
-  --transport-topic=projects/${PROJECT_ID}/topics/scale-up cloud-scale-up
+  --transport-topic=projects/${PROJECT_ID}/topics/scale-up cloud-scale-up \
+  --service-account=cloud-run-pubsub-invoker@${PROJECT_ID}.iam.gserviceaccount.com
 
 gcloud beta eventarc triggers create --location=${REGION} \
   --destination-run-service=cloud-burst-scale-down \
   --matching-criteria="type=google.cloud.pubsub.topic.v1.messagePublished" \
-  --transport-topic=projects/${PROJECT_ID}/topics/scale-up cloud-scale-down
+  --transport-topic=projects/${PROJECT_ID}/topics/scale-down cloud-scale-down \
+  --service-account=cloud-run-pubsub-invoker@${PROJECT_ID}.iam.gserviceaccount.com
 ``` 
