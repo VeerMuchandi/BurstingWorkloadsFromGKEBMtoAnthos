@@ -12,4 +12,4 @@ This is a step by step demo that showcases bursting kubernetes workloads from on
 3. [Deploy Application on GKE Cluster](DeployAppOnKuberun.md)
 4. [Set Hybrid Loadbalancing with Traffic Director](./HybridLBWithTrafficDirector.md)
 5. [Set up CloudMonitoring](./ConfigureCloudMonitoring.md)
-6. Testing Cloud Bursting
+6. [Testing Cloud Bursting](./TestingCloudBursting.md)
