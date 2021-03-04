@@ -1,5 +1,11 @@
 # Setup Monitoring and Alerting
 
+## Pre-requisites
+
+* Create a cloud monitoring workspace as explained [here](https://cloud.google.com/monitoring/workspaces/create#single-project-workspace) if it is not already there.
+
+## Setup PubSub Channels
+
 We will create an alert to inform the system when to burst into GCP and when to scale back down. This scenario will use Pub/Sub as the notification channel. 
 Later we will setup a Cloud Run trigger based on the pub/sub topic which will trigger the scale up/down events.
 
@@ -20,7 +26,7 @@ export SCALE_DOWN_CHANNEL=$(gcloud alpha monitoring channels create \
   --display-name="Hybrid Burst Scale Down" \
   --type=pubsub \
   --channel-labels=topic=projects/${PROJECT_ID}/topics/scale-down \
-  --format='value(name)'
+  --format='value(name)')
 ```
 
 Next we need to create the pub/sub topics we referenced above
@@ -29,10 +35,12 @@ gcloud pubsub topics create scale-up --project ${PROJECT_ID}
 gcloud pubsub topics create scale-down --project ${PROJECT_ID}
 ```
 
+## Setup Alert Policies in Cloud Monitoring
+
 Now create the alert policies
 ```
-# Specify the master node for the on prem cluster
-export ON_PREM_MASTER=snuc-48
+# Specify a regular expression to match nodes
+export REG_EX_NODES=".*-w[0-9]"
 
 cat > scale-up-policy.yaml <<EOF
 combiner: OR
@@ -41,7 +49,7 @@ conditions:
     duration: 0s
     query: |-
       fetch k8s_node
-      | filter (resource.node_name != '${ON_PREM_MASTER}')
+      | filter (resource.node_name =~ '${REG_EX_NODES}')
       | { t_0:
             metric 'kubernetes.io/anthos/node_memory_Active_bytes'
             | align mean_aligner()
@@ -73,7 +81,7 @@ conditions:
     duration: 0s
     query: |-
       fetch k8s_node
-      | filter (resource.node_name != '${ON_PREM_MASTER}')
+      | filter (resource.node_name =~ '${REG_EX_NODES}')
       | { t_0:
             metric 'kubernetes.io/anthos/node_memory_Active_bytes'
             | align mean_aligner()
@@ -101,6 +109,8 @@ EOF
 gcloud alpha monitoring policies create --policy-from-file=scale-up-policy.yaml
 gcloud alpha monitoring policies create --policy-from-file=scale-down-policy.yaml
 ```
+
+## Deploy Cloud Functions for Scale Up and Scale Down
 
 Next we need to create the function that cloud run will use to trigger the scale up and scale down events. 
 Note, these instructions were influenced by the following blog post: 
@@ -184,8 +194,7 @@ FROM gcr.io/google.com/cloudsdktool/cloud-sdk:slim
 RUN apt-get update && apt-get install -y python3-pip python3
 
 # Copy local code to the container image.
-ENV APP_HOME /app
-WORKDIR $APP_HOME
+WORKDIR /app
 COPY . ./
 
 # Install production dependencies.
@@ -207,11 +216,11 @@ gcloud beta run deploy cloud-burst-scale-up --image ${IMAGENAME} \
   --no-allow-unauthenticated \
   --platform=managed \
   --ingress=internal \
-  --set-env-vars=_ON_GCP_BACKEND_SERVICE=istio-ig-backend-service \
-  --set-env-vars=_ON_GCP_HOST=hello-world-kuberun.default.internal.riccic.com \
+  --set-env-vars=_ON_GCP_BACKEND_SERVICE=td-on-gcp-backend-service \
+  --set-env-vars=_ON_GCP_HOST=${KUBERUN_ENDPOINT#*//} \
   --set-env-vars=_ON_GCP_WEIGHT=50 \
   --set-env-vars=_ON_PREM_BACKEND_SERVICE=td-on-prem-backend-service \
-  --set-env-vars=_ON_PREM_HOST=helloworld-python.default.knative.riccic.com \
+  --set-env-vars=_ON_PREM_HOST=${ONPREM_ENDPOINT#*//} \
   --set-env-vars=_ON_PREM_WEIGHT=50
 
 gcloud beta run deploy cloud-burst-scale-down --image ${IMAGENAME} \
@@ -219,16 +228,24 @@ gcloud beta run deploy cloud-burst-scale-down --image ${IMAGENAME} \
   --no-allow-unauthenticated \
   --platform=managed \
   --ingress=internal \
-  --set-env-vars=_ON_GCP_BACKEND_SERVICE=istio-ig-backend-service \
-  --set-env-vars=_ON_GCP_HOST=hello-world-kuberun.default.internal.riccic.com \
+  --set-env-vars=_ON_GCP_BACKEND_SERVICE=td-on-gcp-backend-service \
+  --set-env-vars=_ON_GCP_HOST=${KUBERUN_ENDPOINT#*//} \
   --set-env-vars=_ON_GCP_WEIGHT=0 \
   --set-env-vars=_ON_PREM_BACKEND_SERVICE=td-on-prem-backend-service \
-  --set-env-vars=_ON_PREM_HOST=helloworld-python.default.knative.riccic.com \
+  --set-env-vars=_ON_PREM_HOST=${ONPREM_ENDPOINT#*//} \
   --set-env-vars=_ON_PREM_WEIGHT=100
+``` 
+
+## Deploy Event Arc Triggers
+
+Enable Event Arc services in the project
+
 ```
+gcloud services enable eventarc.googleapis.com
+```
+
 Lastly, create the Eventarc triggers for each service
 ```
-gcloud enable eventarc.googleapis.com
 gcloud beta eventarc triggers create --location=${REGION} \
   --destination-run-service=cloud-burst-scale-up \
   --matching-criteria="type=google.cloud.pubsub.topic.v1.messagePublished" \
